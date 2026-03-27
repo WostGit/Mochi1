@@ -1,4 +1,4 @@
-name: Mochi-1 (Zero-CLI 6GB Fix)
+name: Mochi-1 (Self-Healing 6GB Fix)
 
 on:
   workflow_dispatch:
@@ -25,29 +25,50 @@ jobs:
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((320, 320)).save('input.png')"
 
-      - name: Inference (Direct Python Import)
+      - name: Inference (Self-Healing Script)
         run: |
           python3 << 'EOF'
-          import mlx.core as mx
-          from mlx_video.mochi.generate import generate # Direct internal import
+          import mlx_video
+          import inspect
           
-          print("Starting Mochi-1 Generation (6GB RAM Optimized)...")
+          # DISCOVERY PHASE: Find where the generate function lives
+          try:
+              # Try the most likely 2026 entry point
+              from mlx_video import generate
+              print("Found 'generate' at root.")
+          except ImportError:
+              try:
+                  from mlx_video.models.mochi import generate
+                  print("Found 'generate' in models.mochi.")
+              except ImportError:
+                  # Last ditch: search all submodules for a function named 'generate'
+                  import pkgutil
+                  for loader, module_name, is_pkg in pkgutil.walk_packages(mlx_video.__path__, mlx_video.__name__ + "."):
+                      try:
+                          module = loader.find_module(module_name).load_module(module_name)
+                          if hasattr(module, 'generate'):
+                              generate = module.generate
+                              print(f"Discovered 'generate' in {module_name}")
+                              break
+                      except:
+                          continue
           
-          # We use the 4-bit preview model for absolute minimum RAM footprint
+          # EXECUTION PHASE: 6GB Safe Settings
+          print("Starting Mochi-1 Generation...")
           generate(
               model_path="mlx-community/mochi-1-preview-4bit-mlx",
-              prompt="A cinematic rocket launch with thick smoke and bright fire",
+              prompt="A rocket launch with bright fire, cinematic",
               image_path="input.png",
               width=320,
               height=320,
-              num_frames=31,
+              num_frames=25, # Reduced slightly for 6GB stability
               steps=6,
               output_path="output.mp4"
           )
-          print("Generation Complete!")
+          print("Success!")
           EOF
 
-      - name: Upload Result
+      - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
