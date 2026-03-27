@@ -1,0 +1,51 @@
+name: Mochi-1 (6GB RAM Survival Mode)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Installing the specific mlx-video build with Mochi support
+          pip install mlx-video huggingface_hub Pillow mlx tqdm
+
+      - name: Prepare Tiny Asset
+        run: |
+          curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
+          # 320x320 is the "Zero-Crash" resolution for 6GB RAM
+          python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((320, 320)).save('input.png')"
+
+      - name: Inference (Mochi-1 Preview 4-Bit)
+        run: |
+          # Finding the absolute binary path to avoid 'command not found'
+          BIN_PATH=$(python3 -c "import sys; import os; print(os.path.join(sys.prefix, 'bin', 'mlx-video'))")
+          echo "Found executable at: $BIN_PATH"
+          
+          # Using Mochi-1 Preview (The lightest model in the MLX library)
+          $BIN_PATH mochi \
+            --model mlx-community/mochi-1-preview-4bit-mlx \
+            --prompt "A rocket launch with smoke and fire, cinematic" \
+            --width 320 \
+            --height 320 \
+            --frames 31 \
+            --steps 6 \
+            --output output.mp4
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mochi-video
+          path: output.mp4
