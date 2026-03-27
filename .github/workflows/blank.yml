@@ -1,4 +1,4 @@
-name: Mochi-1 (Self-Healing 6GB Fix)
+name: Mochi-1 (6GB Final Logic Fix)
 
 on:
   workflow_dispatch:
@@ -18,59 +18,55 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install mlx-video huggingface_hub Pillow mlx tqdm
+          # We force a fresh install of the core MLX video suite
+          pip install mlx-video mlx huggingface_hub Pillow tqdm
 
-      - name: Prepare Assets
+      - name: Prepare Asset
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((320, 320)).save('input.png')"
 
-      - name: Inference (Self-Healing Script)
+      - name: Inference (Mochi-1 6GB Optimization)
         run: |
           python3 << 'EOF'
           import mlx_video
-          import inspect
+          import sys
           
-          # DISCOVERY PHASE: Find where the generate function lives
+          # 1. Inspect the library to find the right tool
+          print(f"MLX-Video Version: {getattr(mlx_video, '__version__', 'unknown')}")
+          print(f"Available in mlx_video: {dir(mlx_video)}")
+          
+          # 2. Attempt the 2026 Standard Import
           try:
-              # Try the most likely 2026 entry point
               from mlx_video import generate
-              print("Found 'generate' at root.")
+              print("Using standard top-level generate.")
           except ImportError:
               try:
-                  from mlx_video.models.mochi import generate
-                  print("Found 'generate' in models.mochi.")
+                  from mlx_video.utils import generate
+                  print("Using utils.generate.")
               except ImportError:
-                  # Last ditch: search all submodules for a function named 'generate'
-                  import pkgutil
-                  for loader, module_name, is_pkg in pkgutil.walk_packages(mlx_video.__path__, mlx_video.__name__ + "."):
-                      try:
-                          module = loader.find_module(module_name).load_module(module_name)
-                          if hasattr(module, 'generate'):
-                              generate = module.generate
-                              print(f"Discovered 'generate' in {module_name}")
-                              break
-                      except:
-                          continue
-          
-          # EXECUTION PHASE: 6GB Safe Settings
-          print("Starting Mochi-1 Generation...")
+                  # Fallback to the specific model loader if top-level fails
+                  from mlx_video.models.mochi import generate
+                  print("Using models.mochi.generate.")
+
+          # 3. 6GB RAM Generation
+          # We use 320x320 and only 12 frames to ensure the 6GB runner doesn't peak.
           generate(
               model_path="mlx-community/mochi-1-preview-4bit-mlx",
-              prompt="A rocket launch with bright fire, cinematic",
+              prompt="A cinematic rocket launch, fire and smoke",
               image_path="input.png",
               width=320,
               height=320,
-              num_frames=25, # Reduced slightly for 6GB stability
-              steps=6,
+              num_frames=12, 
+              steps=4,
               output_path="output.mp4"
           )
-          print("Success!")
+          print("SUCCESS: Video generated.")
           EOF
 
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: mochi-video
+          name: rocket-video
           path: output.mp4
