@@ -1,4 +1,4 @@
-name: Mochi-1 (6GB RAM Survival Mode)
+name: Mochi-1 (Zero-CLI 6GB Fix)
 
 on:
   workflow_dispatch:
@@ -18,32 +18,36 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Installing the specific mlx-video build with Mochi support
           pip install mlx-video huggingface_hub Pillow mlx tqdm
 
-      - name: Prepare Tiny Asset
+      - name: Prepare Assets
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          # 320x320 is the "Zero-Crash" resolution for 6GB RAM
           python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((320, 320)).save('input.png')"
 
-      - name: Inference (Mochi-1 Preview 4-Bit)
+      - name: Inference (Direct Python Import)
         run: |
-          # Finding the absolute binary path to avoid 'command not found'
-          BIN_PATH=$(python3 -c "import sys; import os; print(os.path.join(sys.prefix, 'bin', 'mlx-video'))")
-          echo "Found executable at: $BIN_PATH"
+          python3 << 'EOF'
+          import mlx.core as mx
+          from mlx_video.mochi.generate import generate # Direct internal import
           
-          # Using Mochi-1 Preview (The lightest model in the MLX library)
-          $BIN_PATH mochi \
-            --model mlx-community/mochi-1-preview-4bit-mlx \
-            --prompt "A rocket launch with smoke and fire, cinematic" \
-            --width 320 \
-            --height 320 \
-            --frames 31 \
-            --steps 6 \
-            --output output.mp4
+          print("Starting Mochi-1 Generation (6GB RAM Optimized)...")
+          
+          # We use the 4-bit preview model for absolute minimum RAM footprint
+          generate(
+              model_path="mlx-community/mochi-1-preview-4bit-mlx",
+              prompt="A cinematic rocket launch with thick smoke and bright fire",
+              image_path="input.png",
+              width=320,
+              height=320,
+              num_frames=31,
+              steps=6,
+              output_path="output.mp4"
+          )
+          print("Generation Complete!")
+          EOF
 
-      - name: Upload
+      - name: Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:
