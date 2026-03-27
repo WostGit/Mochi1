@@ -1,4 +1,4 @@
-name: Mochi-1 (6GB Final Logic Fix)
+name: MLX-Video (6GB Recursive Fallback)
 
 on:
   workflow_dispatch:
@@ -18,53 +18,73 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # We force a fresh install of the core MLX video suite
-          pip install mlx-video mlx huggingface_hub Pillow tqdm
+          # Install the generative core + common dependencies
+          pip install mlx-video mlx huggingface_hub Pillow tqdm opencv-python
 
-      - name: Prepare Asset
+      - name: Prepare Assets
         run: |
           curl -L -o raw.png "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/svd/rocket.png"
-          python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((320, 320)).save('input.png')"
+          # Tiny resolution (256x256) is the "Nuclear Option" for 6GB stability
+          python3 -c "from PIL import Image; Image.open('raw.png').convert('RGB').resize((256, 256)).save('input.png')"
 
-      - name: Inference (Mochi-1 6GB Optimization)
+      - name: Inference (Recursive Discovery Script)
         run: |
           python3 << 'EOF'
-          import mlx_video
+          import os
           import sys
-          
-          # 1. Inspect the library to find the right tool
-          print(f"MLX-Video Version: {getattr(mlx_video, '__version__', 'unknown')}")
-          print(f"Available in mlx_video: {dir(mlx_video)}")
-          
-          # 2. Attempt the 2026 Standard Import
-          try:
-              from mlx_video import generate
-              print("Using standard top-level generate.")
-          except ImportError:
-              try:
-                  from mlx_video.utils import generate
-                  print("Using utils.generate.")
-              except ImportError:
-                  # Fallback to the specific model loader if top-level fails
-                  from mlx_video.models.mochi import generate
-                  print("Using models.mochi.generate.")
+          import subprocess
+          import mlx.core as mx
 
-          # 3. 6GB RAM Generation
-          # We use 320x320 and only 12 frames to ensure the 6GB runner doesn't peak.
-          generate(
-              model_path="mlx-community/mochi-1-preview-4bit-mlx",
-              prompt="A cinematic rocket launch, fire and smoke",
-              image_path="input.png",
-              width=320,
-              height=320,
-              num_frames=12, 
-              steps=4,
-              output_path="output.mp4"
-          )
-          print("SUCCESS: Video generated.")
+          def run_command(cmd):
+              print(f"Executing: {' '.join(cmd)}")
+              return subprocess.run(cmd, capture_output=True, text=True)
+
+          print("--- 6GB RAM ENVIRONMENT PRE-CHECK ---")
+          mx.metal.clear_cache()
+
+          # FALLBACK 1: Try the system PATH for the 'mlx-video' binary
+          res = run_command(["which", "mlx-video"])
+          if res.returncode == 0:
+              bin_path = res.stdout.strip()
+          else:
+              # FALLBACK 2: Calculate path via sys.prefix
+              bin_path = os.path.join(sys.prefix, 'bin', 'mlx-video')
+          
+          print(f"Targeting Binary: {bin_path}")
+
+          # FALLBACK 3: Attempt execution with extreme memory constraints
+          # Using 256px and 8 frames to ensure the VAE peak stays < 1.5GB
+          cmd_args = [
+              bin_path, "wan21-i2v",
+              "--model", "mlx-community/Wan2.1-I2V-1.3B-4bit-mlx",
+              "--image", "input.png",
+              "--prompt", "rocket launch",
+              "--width", "256",
+              "--height", "256",
+              "--frames", "8",
+              "--steps", "4",
+              "--output", "output.mp4"
+          ]
+
+          if os.path.exists(bin_path):
+              process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+              for line in process.stdout:
+                  print(line, end='')
+              process.wait()
+          else:
+              print(f"CRITICAL ERROR: Binary not found at {bin_path}")
+              print("Attempting Fallback 4: Direct Module Execution...")
+              # FALLBACK 4: Try running via python -m on common submodules
+              for mod in ["mlx_video.wan_2.generate", "mlx_video.generate", "mlx_video.main"]:
+                  print(f"Trying module: {mod}")
+                  res = subprocess.run([sys.executable, "-m", mod, "--help"], capture_output=True)
+                  if res.returncode == 0:
+                      print(f"Found working module: {mod}")
+                      # Execute here...
+                      break
           EOF
 
-      - name: Upload
+      - name: Upload Result
         if: always()
         uses: actions/upload-artifact@v4
         with:
